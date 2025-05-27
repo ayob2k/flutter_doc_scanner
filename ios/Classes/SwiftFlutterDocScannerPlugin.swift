@@ -60,8 +60,7 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
     }
 
     public func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
-        controller.dismiss(animated: true)
-        resultChannel?(FlutterError(code: "SCAN_FAILED", message: "Document scanning failed.", details: error.localizedDescription))
+        showTryAgainAlert(on: controller)
     }
 
     // MARK: - Helpers
@@ -112,5 +111,41 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: Date())
+    }
+
+    // MARK: - Error Handling
+
+    private func showTryAgainAlert(on controller: VNDocumentCameraViewController) {
+        let alertController = UIAlertController(
+            title: "Scanning Failed",
+            message: "Please try again later.",
+            preferredStyle: .alert
+        )
+        
+        let tryAgainAction = UIAlertAction(title: "Try Again", style: .default) { [weak self] _ in
+            // Restart scanning
+            controller.dismiss(animated: true) {
+                if let rootVC = UIApplication.shared
+                    .connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .flatMap({ $0.windows })
+                    .first(where: { $0.isKeyWindow })?
+                    .rootViewController {
+                    let newScannerVC = VNDocumentCameraViewController()
+                    newScannerVC.delegate = self
+                    rootVC.present(newScannerVC, animated: true)
+                }
+            }
+        }
+        
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            controller.dismiss(animated: true)
+            self?.resultChannel?(FlutterError(code: "SCAN_FAILED", message: "Document scanning failed. Please try again later.", details: nil))
+        }
+        
+        alertController.addAction(tryAgainAction)
+        alertController.addAction(cancelAction)
+        
+        controller.present(alertController, animated: true)
     }
 }
