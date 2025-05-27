@@ -60,7 +60,40 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
     }
 
     public func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
-        showTryAgainAlert(on: controller)
+        let alertController = UIAlertController(
+            title: "Scanning Failed",
+            message: "The document scanning process failed. Would you like to try again?",
+            preferredStyle: .alert
+        )
+        
+        let retryAction = UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+            // Dismiss current scanner
+            controller.dismiss(animated: true) {
+                // Present a new scanner
+                if let rootVC = UIApplication.shared
+                    .connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .flatMap({ $0.windows })
+                    .first(where: { $0.isKeyWindow })?
+                    .rootViewController {
+                    let newScannerVC = VNDocumentCameraViewController()
+                    newScannerVC.delegate = self
+                    rootVC.present(newScannerVC, animated: true)
+                }
+            }
+        }
+        
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            controller.dismiss(animated: true)
+            self?.resultChannel?(FlutterError(code: "SCAN_FAILED", 
+                                            message: "Document scanning failed. Please try again later.", 
+                                            details: error.localizedDescription))
+        }
+        
+        alertController.addAction(retryAction)
+        alertController.addAction(cancelAction)
+        
+        controller.present(alertController, animated: true)
     }
 
     // MARK: - Helpers
@@ -76,14 +109,47 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
 
         for i in 0..<scan.pageCount {
             let image = scan.imageOfPage(at: i)
+            let optimizedImage = limitImageSize(image)
             let path = dir.appendingPathComponent("\(timestamp)-\(i).jpg")
-            if let data = image.jpegData(compressionQuality: 0.8) {
+            if let data = optimizedImage.jpegData(compressionQuality: 0.8) {
                 try? data.write(to: path)
                 filePaths.append(path.path)
             }
         }
 
         resultChannel?(filePaths)
+    }
+
+    private func limitImageSize(_ image: UIImage) -> UIImage {
+        let maxDimension: CGFloat = 3000.0 // Maximum dimension to prevent memory issues
+        let currentWidth = image.size.width
+        let currentHeight = image.size.height
+        
+        // Return original image if it's already within limits
+        if currentWidth <= maxDimension && currentHeight <= maxDimension {
+            return image
+        }
+        
+        // Calculate new size maintaining aspect ratio
+        var newWidth: CGFloat
+        var newHeight: CGFloat
+        
+        if currentWidth > currentHeight {
+            newWidth = maxDimension
+            newHeight = (currentHeight * maxDimension) / currentWidth
+        } else {
+            newHeight = maxDimension
+            newWidth = (currentWidth * maxDimension) / currentHeight
+        }
+        
+        let newSize = CGSize(width: newWidth, height: newHeight)
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        
+        return UIGraphicsGetImageFromCurrentImageContext() ?? image
     }
 
     private func saveScannedPdf(scan: VNDocumentCameraScan) {
@@ -94,7 +160,8 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
         let pdfDoc = PDFDocument()
         for i in 0..<scan.pageCount {
             let image = scan.imageOfPage(at: i)
-            if let pdfPage = PDFPage(image: image) {
+            let optimizedImage = limitImageSize(image)
+            if let pdfPage = PDFPage(image: optimizedImage) {
                 pdfDoc.insert(pdfPage, at: pdfDoc.pageCount)
             }
         }
@@ -111,41 +178,5 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: Date())
-    }
-
-    // MARK: - Error Handling
-
-    private func showTryAgainAlert(on controller: VNDocumentCameraViewController) {
-        let alertController = UIAlertController(
-            title: "Scanning Failed",
-            message: "Please try again later.",
-            preferredStyle: .alert
-        )
-        
-        let tryAgainAction = UIAlertAction(title: "Try Again", style: .default) { [weak self] _ in
-            // Restart scanning
-            controller.dismiss(animated: true) {
-                if let rootVC = UIApplication.shared
-                    .connectedScenes
-                    .compactMap({ $0 as? UIWindowScene })
-                    .flatMap({ $0.windows })
-                    .first(where: { $0.isKeyWindow })?
-                    .rootViewController {
-                    let newScannerVC = VNDocumentCameraViewController()
-                    newScannerVC.delegate = self
-                    rootVC.present(newScannerVC, animated: true)
-                }
-            }
-        }
-        
-        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-            controller.dismiss(animated: true)
-            self?.resultChannel?(FlutterError(code: "SCAN_FAILED", message: "Document scanning failed. Please try again later.", details: nil))
-        }
-        
-        alertController.addAction(tryAgainAction)
-        alertController.addAction(cancelAction)
-        
-        controller.present(alertController, animated: true)
     }
 }
