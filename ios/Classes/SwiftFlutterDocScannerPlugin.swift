@@ -76,8 +76,8 @@ public class SwiftFlutterDocScannerPlugin: NSObject, FlutterPlugin, VNDocumentCa
 
         for i in 0..<scan.pageCount {
             let image = scan.imageOfPage(at: i)
-            let path = dir.appendingPathComponent("\(timestamp)-\(i).png")
-            if let data = image.pngData() {
+            let path = dir.appendingPathComponent("\(timestamp)-\(i).jpg")
+            if let data = image.jpegData(compressionQuality: 0.8) {
                 try? data.write(to: path)
                 filePaths.append(path.path)
             }
